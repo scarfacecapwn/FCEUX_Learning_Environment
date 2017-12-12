@@ -101,11 +101,13 @@ class NESInterface::Impl {
         int m_max_num_frames;     // Maximum number of frames for each episode
         int nes_input; // Input to the emulator.
         int current_game_score;
-		int current_v;
-		int current_l;
+		int current_v; // current number of viruses
+		int current_l; // current level
         int remaining_lives;
         int game_state;
-        int episode_frame_number;
+		int episode_frame_number;
+		int board_score; // represents score on the board (our own calculated metric)
+		int current_y; // current y position
 };
 
 
@@ -289,6 +291,111 @@ const int NESInterface::Impl::getCurrentScore() const {
 	return current_game_score;
 }
 
+// return reward from board
+int evaluateBoard(){
+
+	int board[16][8];
+
+	// add hex values to the board
+	int hex = 0x0400;
+	for(int row=0; row < 16; row ++){
+		for(int col=0; col < 8; col++){
+			int value = FCEU_CheatGetByte(hex);
+			hex++;
+			board[row][col] = value;
+		}
+	}
+
+	// value representation of each spot on the board
+	// int yellow_values[] = {64, 80, 96, 112, 128};
+	// int red_values[] = {65, 81, 97, 113, 129};
+	// int blue_values[] = {66, 82, 98, 114, 130};
+
+	// int yellow_virus = 208;
+	// int red_virus = 209;
+	// int blue_virus = 210;
+
+	int reward = 0;
+	int consecutive = 0;
+
+	for(int row=0; row<16; row++){
+		int previous_value = 0;
+		for(int col=0; col<8;col++){
+			int current_value = board[row][col];
+	
+			// pill color values increase by 16 for each type
+			if(current_value != 255 && previous_value != 0 && (current_value - previous_value) % 16 == 0){
+				reward++;
+				consecutive++;
+
+				// extra reward for killing virus
+				if(current_value > 170){
+					reward += 15;
+				}
+
+				// bonus rewards for 3 in a row or 4 in a row
+				if(consecutive == 3){
+					reward += 5;
+				}
+				else if(consecutive == 4){
+					reward += 20;
+				}
+			}
+			else{
+				if(current_value == 255){
+					consecutive = 0;
+				}
+				else{
+					consecutive = 1;
+				}
+			}
+
+			previous_value = current_value;
+			
+		}
+	}
+
+	for(int col=0; col<8; col++){
+		int previous_value = 0;
+		for(int row=0; row<16;row++){
+			int current_value = board[row][col];
+
+			// pill color values increase by 16 for each type
+			if(current_value != 255 && previous_value != 0 && (current_value - previous_value) % 16 == 0){
+				reward++;
+				consecutive++;
+
+				// extra reward for killing virus
+				if(current_value > 170){
+					reward += 15;
+				}
+
+				// bonus rewards for 3 in a vertical column or 4 in a vertical column
+				if(consecutive == 3){
+					reward += 5;
+				}
+				else if(consecutive == 4){
+					reward += 20;
+				}
+			}
+			else{
+				if(current_value == 255){
+					consecutive = 0;
+				}
+				else{
+					consecutive = 1;
+				}
+			}
+
+			previous_value = current_value;
+
+		}
+	}
+
+	return reward;
+
+}
+
 int NESInterface::Impl::act(int action) {
 
 	// Calculate lives.
@@ -385,32 +492,49 @@ int NESInterface::Impl::act(int action) {
 
 	// Calculate the change in x (this is the x position on the screen, not in the level).
 	int new_v = FCEU_CheatGetByte(0x0324);
-	int delta_v = new_v - current_v;
-	delta_v = delta_v * 60;
+	//printf("Number of Viruses: %d\n", new_v);
+	int delta_v = current_v - new_v;
+
+	if(delta_v > 0){
+		printf("Virus gone\n");
+	}
+
+	//large reward for deleting a virus
+	delta_v = delta_v * 1000;
 
 	int new_l = FCEU_CheatGetByte(0x0316);
 	int delta_l = new_l - current_l;
 
-	// reward for increasing level
-	delta_l = delta_l * 120;
+	//huge reward for defeating level
+	delta_l = delta_l * 10000;
 
-	// Handle resets of level, etc.
-	if (abs(delta_v) > MAX_ALLOWED_X_CHANGE) {
-		delta_v = 0;
-		current_v = 0;
-	} 
+	int new_board = evaluateBoard();
+	int delta_board = new_board - board_score;
+
+	int new_y = FCEU_CheatGetByte(0x0306);
+	int delta_y = new_y - current_y;
+	if(new_y != 15){
+		delta_y = 0;
+	}
+
+	if(delta_board < 0){
+		delta_board = 0;
+	}
 		current_v = new_v;
 		current_l = new_l;
+		board_score = new_board;
 
 	// Calculate the reward based on score.
-	int reward = delta_v + delta_l;
+	int reward = delta_v + delta_l + delta_board + delta_y;
 
 	// Handle negative scores.
 	if (reward < 0) {
-			reward = 0;
+		reward = 0;
 	}
 
-
+	if(nes_input > 31 && nes_input < 35){
+		reward += 2;
+	}
 	return reward;
 }
 
@@ -421,6 +545,8 @@ NESInterface::Impl::Impl(const std::string &rom_file) :
 	current_game_score(0),
 	current_v(3),
 	current_l(1),
+	current_y(15),
+	board_score(0),
 	remaining_lives(0),
 	game_state(0),
 	episode_frame_number(0)
