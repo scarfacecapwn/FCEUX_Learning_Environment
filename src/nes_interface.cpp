@@ -118,7 +118,7 @@ NESInterface::Impl::~Impl() {
 bool NESInterface::Impl::loadState() {
 
 	// TODO implement
-	printf("loadState is not implemented...");
+	printf("loadState is not implemented");
 	//FCEUI_LoadState();
 	return false;
 }
