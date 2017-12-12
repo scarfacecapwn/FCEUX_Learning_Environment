@@ -156,6 +156,16 @@ void NESInterface::Impl::reset_game() {
 	for (int i = 0; i<10; i++) {
 		NESInterface::Impl::act(ACT_SELECT);
 	}
+
+	// Run a few frames to get to the second screen.
+	for (int i = 0; i<120; i++) {
+		NESInterface::Impl::act(ACT_NOOP);
+	}
+
+	// Hit the start button...
+	for (int i = 0; i<10; i++) {
+		NESInterface::Impl::act(ACT_SELECT);
+	}
 }
 
 void NESInterface::Impl::saveState() {
