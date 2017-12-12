@@ -101,7 +101,8 @@ class NESInterface::Impl {
         int m_max_num_frames;     // Maximum number of frames for each episode
         int nes_input; // Input to the emulator.
         int current_game_score;
-        int current_x;
+		int current_v;
+		int current_l;
         int remaining_lives;
         int game_state;
         int episode_frame_number;
@@ -127,13 +128,13 @@ bool NESInterface::Impl::game_over() {
 
 	// Update game state.
 	game_state = FCEU_CheatGetByte(0x0046);
-	
+
 	// Return true only if this byte is 1.
 	if (game_state != 7) return false;
 
 	// Reset the score and position.
 	current_game_score = 0;
-	current_x = 0;
+	// current_v = FCEU_CheatGetByte(0x0324);
 	return true;
 }
 
@@ -144,7 +145,6 @@ void NESInterface::Impl::reset_game() {
 
 	// Initialize the score,position, and frame counter.
 	current_game_score = 0;
-	current_x = 0;
 	episode_frame_number = 0;
 
 	// Run a few frames first to get to the startup screen.
@@ -166,6 +166,9 @@ void NESInterface::Impl::reset_game() {
 	for (int i = 0; i<10; i++) {
 		NESInterface::Impl::act(ACT_SELECT);
 	}
+
+	current_v = FCEU_CheatGetByte(0x0324);
+	current_l = FCEU_CheatGetByte(0x0316);
 }
 
 void NESInterface::Impl::saveState() {
@@ -292,7 +295,7 @@ int NESInterface::Impl::act(int action) {
 	remaining_lives = FCEU_CheatGetByte(0x075a);
 
 	// Update game state.
-	game_state = FCEU_CheatGetByte(0x0770);
+	game_state = FCEU_CheatGetByte(0x0046);
 
 	// Set the action. No idea whether this will work with other input configurations!
 	switch (action) {
@@ -377,38 +380,36 @@ int NESInterface::Impl::act(int action) {
 	FCEUI_Emulate(&gfx, &sound, &ssize, fskipc);
 	FCEUD_Update(gfx, sound, ssize);
 
-	// Get score...
-	int new_score = (FCEU_CheatGetByte(0x07dd) * 1000000) +
-			(FCEU_CheatGetByte(0x07de) * 100000) +
-			(FCEU_CheatGetByte(0x07df) * 10000) +
-			(FCEU_CheatGetByte(0x07e0) * 1000) +
-			(FCEU_CheatGetByte(0x07e1) * 100) +
-			(FCEU_CheatGetByte(0x07e2) * 10);
+	
+
 
 	// Calculate the change in x (this is the x position on the screen, not in the level).
-	int new_x = FCEU_CheatGetByte(0x0086);
-	int deltaX = new_x - current_x;
-	deltaX = deltaX * 5;
+	int new_v = FCEU_CheatGetByte(0x0324);
+	int delta_v = new_v - current_v;
+	delta_v = delta_v * 60;
+
+	int new_l = FCEU_CheatGetByte(0x0316);
+	int delta_l = new_l - current_l;
+
+	// reward for increasing level
+	delta_l = delta_l * 120;
 
 	// Handle resets of level, etc.
-	if (abs(deltaX) > MAX_ALLOWED_X_CHANGE) {
-		deltaX = 0;
-		current_x = 0;
+	if (abs(delta_v) > MAX_ALLOWED_X_CHANGE) {
+		delta_v = 0;
+		current_v = 0;
 	} 
-        current_x = new_x;
+		current_v = new_v;
+		current_l = new_l;
 
 	// Calculate the reward based on score.
-	int reward = new_score - current_game_score;
+	int reward = delta_v + delta_l;
 
 	// Handle negative scores.
 	if (reward < 0) {
 			reward = 0;
 	}
-	current_game_score = new_score;
 
-	// Add reward based on position.
-        // Oh wow - now sure we want to do this :(
-	reward = reward + deltaX;
 
 	return reward;
 }
@@ -418,7 +419,8 @@ NESInterface::Impl::Impl(const std::string &rom_file) :
     m_display_active(false),
 	nes_input(0),
 	current_game_score(0),
-	current_x(0),
+	current_v(3),
+	current_l(1),
 	remaining_lives(0),
 	game_state(0),
 	episode_frame_number(0)
