@@ -517,6 +517,11 @@ int NESInterface::Impl::act(int action) {
 		delta_y = 0;
 	}
 
+	// only update if the pill has been placed
+	if(new_y != 15 || current_y == 15){
+		delta_board = 0;
+	}
+
 	if(delta_board < 0){
 		delta_board = 0;
 	}
